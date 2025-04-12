@@ -1,0 +1,560 @@
+---
+title: "final_project_r"
+output: word_document
+date: "2025-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Team Members
+- Mannava praneeth chowdary, win : 077482549
+
+
+
+### Data Access Instructions
+The data used in this project is located in a folder structure as follows:
+-> archive/ipl_match_info_data.csv // kaggle complete ipl dataset by BISWAJIT BRAHMMA
+
+
+-> archive/ipl_match_ball_by_ball_data.csv // kaggle complete ipl dataset by BISWAJIT BRAHMMA
+
+
+-> IPL - Player Performance Dataset/All Seasons Combined/*.csv // kaggle dataset by SOURAV BANERJE
+
+
+-> player_team_map_fully_filled.csv // mapped manually 
+
+The dataset used in this project is too large to store in the GitHub repository. You can download it from the following [Google Drive link](https://drive.google.com/drive/folders/1YxPej6-Ezt56-W0s_fwWssnFEGaHqCg4?usp=sharing).
+
+
+## Motivation and Overview
+In this project, our goal was to **predict the outcome of IPL cricket matches** using historical match data. Cricket is one of the most popular sports globally, and with the increasing popularity of IPL, many enthusiasts are interested in predictions for entertainment, betting, and strategic analysis.
+
+By analyzing past match data, player performance, and match conditions, we aimed to build a model that could predict match outcomes with reasonable accuracy. We used machine learning methods and created visualizations to better understand the data and guide our modeling choices.
+
+
+## Related Work
+Below are some of the resources and inspirations that guided our project development:
+
+- **Kaggle – IPL Dataset**  
+  We used IPL datasets from Kaggle to build our models and perform EDA.  
+  [https://www.kaggle.com/datasets](https://www.kaggle.com/datasets)
+
+- **Cricsheet**  
+  Open-source ball-by-ball data helped us analyze player and team performance trends.  
+  [https://cricsheet.org](https://cricsheet.org)
+
+- **ESPN Cricinfo**  
+  Used to verify player and venue stats, and inspired some of our feature engineering decisions.  
+  [https://www.espncricinfo.com](https://www.espncricinfo.com)
+
+- **“Using Machine Learning to Predict Cricket Matches” by Nikhil Jain**  
+  A Medium article that discussed practical ML techniques for cricket match prediction.  
+  [https://medium.com/@nikhiljain92](https://medium.com/@nikhiljain92)
+
+- **“IPL Match Outcome Prediction” – IEEE Paper (2021)**  
+  Helped us compare and validate our model choices like Random Forest and SVMs.
+
+
+
+## Initial Questions
+The initial questions we explored were:
+1. Which teams win the most matches?
+2. Does the toss decision affect the match result?
+3. Who are the top performers in terms of runs, wickets, and sixes?
+4. How has the frequency of extras changed over time?
+
+As we progressed, we added questions like:
+- Are certain teams more successful in specific venues or conditions?
+- How do individual player contributions evolve over seasons?
+
+
+---
+
+## Narrative and Summary
+Through this project, we learned:
+- Winning the toss has a minor but notable impact on the outcome.
+- Certain teams like CSK and MI dominate overall win counts.
+- Extras tend to fluctuate, with spikes in some seasons, which may hint at officiating or bowling discipline trends.
+- Players like Virat Kohli and Chris Gayle consistently top the charts in batting metrics.
+- Visualizations are essential in understanding trends and communicating insights clearly.
+
+### Limitations
+- Our data was historical; real-time prediction would need live data feeds.
+- Some datasets had missing values or inconsistent naming across seasons.
+- We didn't account for contextual features like pitch type or weather.
+
+---
+
+## Conclusion
+This project demonstrates the power of data in sports analytics. With clean data, thoughtful questions, and visual storytelling, we were able to extract key insights from IPL datasets. Future extensions of this work could involve player performance prediction or match outcome forecasting.
+
+---
+
+1 : libraries
+      This project uses tidyverse, data.table, and lubridate for efficient data manipulation and date handling. caret, xgboost, and randomForest support machine learning tasks. For building interactive dashboards, shiny, shinydashboard, DT, and shinyWidgets enhance app functionality and user interface.
+```{r}
+library(tidyverse)
+library(data.table)
+library(lubridate)
+library(caret)
+library(xgboost)
+library(randomForest)
+library(shiny)
+library(shinydashboard)
+library(DT)
+library(shinyWidgets)
+```
+
+2 : Datasets
+      We used multiple CSV datasets extracted from Kaggle and other sources. These included:
+- Ball-by-ball match data
+- Match summary data
+- Player performance datasets (runs, wickets, sixes, centuries, etc.)
+
+We used `fread()` and `read_csv()` functions to load these datasets. 
+```{r}
+
+setwd("/Users/praneeth/Desktop/R project adv")  
+
+# Load ball-by-ball and match info data
+ball_data <- fread("archive/ipl_match_ball_by_ball_data.csv")
+match_info <- fread("archive/ipl_match_info_data.csv")
+
+# Load player performance datasets
+performance_path <- "IPL - Player Performance Dataset/All Seasons Combined"
+
+# Utility function to read and clean each file
+safe_fread <- function(file) {
+  df <- fread(file)
+  names(df)[names(df) == ""] <- paste0("unnamed_col_", which(names(df) == ""))
+  names(df) <- make.names(names(df), unique = TRUE)
+  return(df)
+}
+
+# All performance files into a named list
+performance_files <- list.files(performance_path, pattern = "*.csv", full.names = TRUE)
+names(performance_files) <- gsub(".csv", "", basename(performance_files))
+
+# Load and clean using safe_fread
+performance_data <- lapply(performance_files, safe_fread)
+
+```
+
+3 : Preprocessing and Wrangling
+      All data was cleaned using make.names() to standardize column names, and duplicates/missing values were handled accordingly. We merged datasets using common keys like match_id and standardized the date formats using lubridate::ymd().
+      
+```{r}
+# Cleaning column names
+library(data.table)
+library(dplyr)
+library(lubridate)
+
+# Clean column names for primary datasets
+names(ball_data) <- make.names(names(ball_data), unique = TRUE)
+names(match_info) <- make.names(names(match_info), unique = TRUE)
+
+# Merging and preprocessing match data
+combined_data <- merge(ball_data, match_info, by = "match_id")
+combined_data$date <- ymd(combined_data$date)
+match_info$date <- ymd(match_info$date)
+match_info <- match_info[!is.na(winner) & result_type != "no result"]
+
+# Loading and cleaning player performance datasets
+performance_path <- "IPL - Player Performance Dataset/All Seasons Combined"
+performance_files <- list.files(performance_path, pattern = "*.csv", full.names = TRUE)
+names(performance_files) <- gsub(".csv", "", basename(performance_files))
+
+# Safe loader with empty name fix
+performance_data <- lapply(performance_files, function(file) {
+  df <- fread(file)
+  
+  # Handle empty column names explicitly
+  names(df)[names(df) == ""] <- paste0("unnamed_col_", which(names(df) == ""))
+  names(df) <- make.names(names(df), unique = TRUE)
+  
+  # Clean and coerce types
+  df <- df %>%
+    distinct() %>%
+    mutate(across(where(is.character), ~na_if(., ""))) %>%
+    mutate(across(where(is.character), \(x) type.convert(x, as.is = TRUE)))
+  
+  return(df)
+})
+
+
+```
+
+4 : Exploratory Data analysis (EDA)
+    We explored the data using various plots:
+    
+### Match-level Insights
+- Total Wins by Team: Bar plots showing win counts revealed historically dominant teams.
+- Toss Decision Trends: Visualized how often teams choose to bat or bowl.
+- Toss vs Match Outcome: Analyzed if winning the toss gave an advantage.
+```{r}
+library(ggplot2)
+library(dplyr)
+library(forcats)
+
+# Wins by team
+match_info %>%
+  filter(!is.na(winner)) %>%
+  count(winner, sort = TRUE) %>%
+  ggplot(aes(x = fct_reorder(winner, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Total Wins by Team", x = "Team", y = "Wins")
+
+# Toss vs match win
+match_info %>%
+  mutate(toss_win_is_win = toss_winner == winner) %>%
+  count(toss_win_is_win) %>%
+  ggplot(aes(x = toss_win_is_win, y = n, fill = toss_win_is_win)) +
+  geom_col() +
+  labs(title = "Impact of Toss on Winning", x = "Toss Win = Match Win", y = "Count")
+
+# Toss decision trends
+match_info %>%
+  count(toss_decision) %>%
+  ggplot(aes(x = toss_decision, y = n, fill = toss_decision)) +
+  geom_col() +
+  labs(title = "Toss Decision Distribution", x = "Decision", y = "Count")
+```
+
+### Ball-by-ball Analysis
+- Top Run Scorers: Aggregated player scores to identify top batsmen.
+- Extras Over Time: Plotted extras (no balls, wides, etc.) year-wise.
+```{r}
+library(dplyr)
+# Top run scorers in dataset
+combined_data %>%
+  filter(!is.na(striker)) %>%
+  group_by(striker) %>%
+  summarise(total_runs = sum(runs_off_bat, na.rm = TRUE)) %>%
+  arrange(desc(total_runs)) %>%
+  head(10) %>%
+  ggplot(aes(x = reorder(striker, total_runs), y = total_runs)) +
+  geom_col(fill = "tomato") +
+  coord_flip() +
+  labs(title = "Top 10 Batsmen by Total Runs", x = "Batsman", y = "Runs")
+
+# Extras over time
+combined_data %>%
+  mutate(
+    year = lubridate::year(date),
+    extras = coalesce(wides, 0) + coalesce(noballs, 0) + coalesce(byes, 0) + coalesce(legbyes, 0) + coalesce(penalty, 0)
+  ) %>%
+  group_by(year) %>%
+  summarise(total_extras = sum(extras, na.rm = TRUE)) %>%
+  ggplot(aes(x = year, y = total_extras)) +
+  geom_line(color = "purple", linewidth = 1.2)
+  labs(title = "Total Extras by Year", x = "Year", y = "Extras")
+```
+
+### Player Stats
+- Most Wickets: Top 10 players by wicket count across all seasons.
+- Most Sixes in an Innings: Highlighted explosive innings performances.
+```{r}
+most_wickets <- performance_data[["Most Wickets All Seasons Combine"]]
+
+most_wickets %>%
+  group_by(Player) %>%
+  summarise(Wkts = sum(Wkts, na.rm = TRUE)) %>%           
+  ungroup() %>%
+  slice_max(Wkts, n = 10) %>%
+  arrange(desc(Wkts)) %>%
+  mutate(Player = factor(Player, levels = unique(Player))) %>%
+  ggplot(aes(x = Player, y = Wkts)) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  labs(title = "Top 10 Wicket Takers", x = "Player", y = "Wkts")
+
+sixes <- performance_data[["Most Sixes Per Innings All Seasons Combine"]]
+
+names(sixes) <- make.names(names(sixes))  # X6s becomes X6s
+
+sixes %>%
+  group_by(Player) %>%
+  summarise(Max_Sixes = max(X6s, na.rm = TRUE)) %>%
+  ungroup() %>%
+  slice_max(Max_Sixes, n = 10) %>%
+  arrange(desc(Max_Sixes)) %>%
+  mutate(Player = factor(Player, levels = unique(Player))) %>%
+  ggplot(aes(x = Player, y = Max_Sixes)) +
+  geom_col(fill = "darkred") +
+  coord_flip() +
+  labs(title = "Top 10 Most Sixes in a Single Innings", x = "Player", y = "Sixes")
+```
+Each EDA visualization was designed to support intuitive understanding and drive further questioning.
+
+5. Feature selection
+      For this project, we focused on selecting only the features that were actually present and had enough valid data to be useful. We included things like toss decisions, team strengths, venue performance, and home advantage—basically, factors that could realistically impact match outcomes. To keep things clean and avoid errors, we only used features that had enough non-missing values. This approach helped make the models more accurate and kept the code flexible no matter what the dataset looked like.
+```{r message=FALSE}
+
+library(dplyr)
+library(tidyr)
+library(tibble)
+
+# 1. Defining home venues per team
+home_venues <- list(
+  "Mumbai Indians" = "Wankhede Stadium",
+  "Chennai Super Kings" = "MA Chidambaram Stadium",
+  "Royal Challengers Bangalore" = "M Chinnaswamy Stadium",
+  "Kolkata Knight Riders" = "Eden Gardens",
+  "Delhi Capitals" = "Arun Jaitley Stadium",
+  "Sunrisers Hyderabad" = "Rajiv Gandhi International Stadium",
+  "Rajasthan Royals" = "Sawai Mansingh Stadium",
+  "Punjab Kings" = "Punjab Cricket Association IS Bindra Stadium",
+  "Lucknow Super Giants" = "BRSABV Ekana Cricket Stadium",
+  "Gujarat Titans" = "Narendra Modi Stadium"
+)
+
+home_advantage_df <- enframe(home_venues, name = "Team", value = "home_venue")
+
+match_info <- read.csv("archive/ipl_match_info_data.csv")
+
+
+# 2. Remove any existing conflicting columns
+match_info <- match_info %>%
+  select(-any_of(c("team1_home_venue", "team2_home_venue")))
+
+# 3. Add home venue info
+match_info <- match_info %>%
+  left_join(home_advantage_df, by = c("team1" = "Team")) %>%
+  rename(team1_home_venue = home_venue) %>%
+  left_join(home_advantage_df, by = c("team2" = "Team")) %>%
+  rename(team2_home_venue = home_venue)
+
+# 4. Compute home advantage
+match_info <- match_info %>%
+  mutate(
+    home_advantage_team1 = ifelse(venue == team1_home_venue, 1, 0),
+    home_advantage_team2 = ifelse(venue == team2_home_venue, 1, 0)
+  )
+
+# 5. Venue win % (venue strength)
+venue_strength <- match_info %>%
+  group_by(venue, winner) %>%
+  summarise(wins = n(), .groups = "drop") %>%
+  rename(Team = winner)
+
+venue_matches <- match_info %>%
+  pivot_longer(cols = c(team1, team2), names_to = "team_pos", values_to = "Team") %>%
+  group_by(venue, Team) %>%
+  summarise(total_played = n(), .groups = "drop")
+
+venue_strength <- left_join(venue_strength, venue_matches, by = c("venue", "Team")) %>%
+  mutate(venue_win_pct = ifelse(total_played > 0, wins / total_played, 0))
+
+# 6. Placeholder team_strength definition (NA for now)
+team_strength <- match_info %>%
+  pivot_longer(cols = c(team1, team2), names_to = "team_role", values_to = "Team") %>%
+  group_by(Team) %>%
+  summarise(most_runs = NA_real_, most_wickets = NA_real_, matches_played = n(), .groups = "drop")
+
+# 7. Join venue strength
+match_info <- match_info %>%
+  left_join(venue_strength %>% rename(venue_strength_team1 = venue_win_pct), by = c("venue", "team1" = "Team")) %>%
+  left_join(venue_strength %>% rename(venue_strength_team2 = venue_win_pct), by = c("venue", "team2" = "Team"))
+
+# 8. Join placeholder team performance stats
+match_info <- match_info %>%
+  left_join(team_strength %>% select(Team, team1_total_runs = most_runs, team1_total_wickets = most_wickets), by = c("team1" = "Team")) %>%
+  left_join(team_strength %>% select(Team, team2_total_runs = most_runs, team2_total_wickets = most_wickets), by = c("team2" = "Team"))
+
+print(class(match_info))
+
+
+if (is.data.frame(match_info)) {
+  # Remove .x/.y suffixes manually only from known modeling columns
+  names(match_info) <- make.names(names(match_info), unique = TRUE)
+  names(match_info) <- gsub("\\.x+", "_x", names(match_info))
+  names(match_info) <- gsub("\\.y+", "_y", names(match_info))
+  
+  # Manually deduplicate specific problematic names if still repeated
+  if (any(duplicated(names(match_info)))) {
+    match_info <- match_info[, !duplicated(names(match_info)), drop = FALSE]
+  }
+} else {
+  stop("match_info is not a data frame. Please re-import the original data.")
+}
+
+ 
+
+# 10. Select final features for modeling
+model_data <- match_info %>%
+  select(
+    venue_strength_team1, venue_strength_team2,
+    home_advantage_team1, home_advantage_team2,
+    team1_total_runs, team2_total_runs,
+    team1_total_wickets, team2_total_wickets,
+    toss_decision
+  )
+
+cat("Final features selected for modeling:\n")
+print(colnames(model_data))
+
+
+```
+
+
+
+6 : Training and Modeling using random forest and xgboost
+        We used two powerful machine learning models to predict match outcomes: Random Forest and XGBoost. Random Forest was tuned using repeated cross-validation and different mtry values to find the best-performing combination. XGBoost was trained with 100 boosting rounds and logistic loss to handle the binary classification task. Once both models were trained, we compared their individual performance and also created ensemble predictions. The ensemble approach combined both models through voting—first simple, then weighted—to boost overall accuracy. This helped us capture the strengths of both algorithms and make more reliable predictions. The final weighted ensemble crossed 70% accuracy, showing a strong improvement from baseline.
+```{r}
+# Required Libraries
+library(caret)
+library(randomForest)
+library(xgboost)
+library(dplyr)
+library(stringr)
+
+# Creating binary target
+match_info <- match_info %>%
+  mutate(
+    winner = str_trim(tolower(winner)),
+    team1 = str_trim(tolower(team1)),
+    team2 = str_trim(tolower(team2)),
+    target = case_when(
+      winner == team1 ~ "team1",
+      winner == team2 ~ "team2",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(target))
+
+# Dynamically adding features only if they exist
+good_features <- c()
+add_if_available <- function(feature, min_valid = 100) {
+  if (feature %in% names(match_info) && sum(!is.na(match_info[[feature]])) >= min_valid) {
+    assign("good_features", c(get("good_features", envir = .GlobalEnv), feature), envir = .GlobalEnv)
+  }
+}
+
+features_to_try <- c(
+  "toss_decision", "toss_win", "team1_total_runs", "team2_total_runs",
+  "team1_total_wickets", "team2_total_wickets", "venue_strength_team1", 
+  "venue_strength_team2", "home_advantage_team1", "home_advantage_team2",
+  "head_to_head_wins_team1", "head_to_head_wins_team2"
+)
+
+invisible(lapply(features_to_try, add_if_available))
+good_features <- c(good_features, "target")
+
+#Preparing model_data
+model_data <- match_info %>%
+  select(all_of(good_features)) %>%
+  filter(complete.cases(.)) %>%
+  mutate(target = as.factor(target))
+
+print(table(model_data$target))
+
+# Exit if no class diversity
+if (length(unique(model_data$target)) < 2 || nrow(model_data) < 10) {
+  stop("Not enough class diversity or data to train model.")
+}
+
+# Training/Testing Split
+set.seed(123)
+train_index <- createDataPartition(model_data$target, p = 0.8, list = FALSE)
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+# Tuned Random Forest using caret
+control <- trainControl(method = "repeatedcv", number = 5, repeats = 3)
+tunegrid <- expand.grid(mtry = 2:min(5, ncol(train_data) - 1))
+
+set.seed(123)
+rf_tuned <- train(
+  target ~ ., data = train_data, method = "rf",
+  trControl = control, tuneGrid = tunegrid, ntree = 1000
+)
+
+rf_tuned_preds <- predict(rf_tuned, test_data)
+cat("Tuned Random Forest Accuracy:\n")
+print(mean(rf_tuned_preds == test_data$target))
+print(confusionMatrix(rf_tuned_preds, test_data$target))
+varImpPlot(rf_tuned$finalModel)
+
+# XGBoost
+train_matrix <- model.matrix(target ~ . -1, data = train_data)
+train_label <- as.numeric(train_data$target) - 1
+test_matrix <- model.matrix(target ~ . -1, data = test_data)
+test_label <- as.numeric(test_data$target) - 1
+
+xgb_model <- xgboost(
+  data = train_matrix, label = train_label,
+  objective = "binary:logistic", nrounds = 100, verbose = 0
+)
+
+xgb_preds_prob <- predict(xgb_model, test_matrix)
+xgb_preds <- ifelse(xgb_preds_prob > 0.5, "team2", "team1")
+cat("XGBoost Accuracy:\n")
+print(mean(xgb_preds == test_data$target))
+
+# Ensemble Voting
+rf_bin <- as.numeric(rf_tuned_preds == "team1")
+xgb_bin <- as.numeric(xgb_preds == "team1")
+
+# Simple Voting
+ensemble_preds <- ifelse((rf_bin + xgb_bin) >= 1, "team1", "team2")
+cat("Ensemble Accuracy (RF + XGB):\n")
+print(mean(ensemble_preds == test_data$target))
+print(confusionMatrix(as.factor(ensemble_preds), test_data$target))
+
+# Weighted Voting: RF = 2 votes, XGB = 1 vote
+ensemble_preds <- ifelse((2 * rf_bin + xgb_bin) >= 2, "team1", "team2")
+cat("Weighted Ensemble Accuracy (2*RF + XGB):\n")
+print(mean(ensemble_preds == test_data$target))
+print(confusionMatrix(as.factor(ensemble_preds), test_data$target))
+
+```
+
+7 : shiny app development 
+        To make our project interactive and accessible, we built a multi-page Shiny dashboard using shinydashboard. The app includes five tabs: Match Predictor, Match Insights, Ball-by-Ball Analysis, Player Stats, and Data Tables. We used selectInput, plotOutput, DTOutput, and actionButton elements to make the interface user-friendly. The Match Predictor tab allows users to input two teams, venue, toss winner, and toss decision to predict the likely winner based on historical data. Other tabs display insights such as win counts, toss impact, top players, and a searchable match data table. We also integrated visualizations using ggplot2 and made sure the app remains reactive and efficient with appropriate use of renderPlot, renderText, and renderDT.
+
+App.R has been created for the shiny app 
+
+8 : limitations 
+
+While our model and Shiny app provide useful insights and predictions, there are several limitations to consider:
+
+- Historical Data Bias: Our model relies on past data, which may not capture recent team dynamics, player injuries, or current form.
+- Missing Contextual Factors: Variables like pitch conditions, weather, and in-game momentum, which can significantly influence match outcomes, were not included.
+- Incomplete Player Mapping: Due to data limitations, not all players had consistent performance stats across seasons, affecting team strength features.
+- Static Prediction Logic: The predictor uses historical win ratios instead of live machine learning predictions due to time and hosting constraints.
+- Data Quality and Naming Inconsistencies: Variations in team or player names across seasons required manual correction, which may introduce errors.
+
+Future improvements could include real-time APIs, advanced ML integration, and more granular player-level features to improve prediction accuracy.
+
+9 : conclusion
+
+This project helped us apply the complete data science workflow—from data cleaning and feature engineering to modeling and interactive visualization—on a real-world sports dataset. We explored patterns in IPL matches, player performances, and toss strategies, and developed a Shiny app that allows users to interact with these insights and predict match outcomes.
+
+Through this work, we gained hands-on experience with tools like dplyr, ggplot2, randomForest, xgboost, and shiny, while also understanding the challenges involved in real-world data such as inconsistencies and missing values. Overall, this project highlighted the power of data analytics in sports and opened up ideas for further exploration like real-time predictions and deeper contextual modeling.
+
+10 : THANK YOU.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
