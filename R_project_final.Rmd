@@ -519,6 +519,8 @@ print(confusionMatrix(as.factor(ensemble_preds), test_data$target))
 
 App.R has been created for the shiny app 
 
+link: https://advancerprojectiplwinpredictor.shinyapps.io/r_project_adv/
+
 8 : limitations 
 
 While our model and Shiny app provide useful insights and predictions, there are several limitations to consider:
